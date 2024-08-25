@@ -34,7 +34,7 @@ NUM_WORKERS = max(cpu_count() - 2, 1)
 RESIZE_DIMENSIONS = (512, 512)
 
 # Frequency of checkpoint saves (every N images)
-CHECKPOINT_FREQUENCY = 1000
+CHECKPOINT_FREQUENCY = 5000
 
 # ================================
 # Setup Logging
@@ -114,6 +114,7 @@ def main():
     if os.path.exists(STATS_CSV_PATH):
         stats_df = pd.read_csv(STATS_CSV_PATH, index_col='filename')
         processed_images = set(stats_df.index)
+        logging.info(f"Loaded {len(processed_images)} previously processed images.")
     else:
         stats_df = pd.DataFrame(columns=[
             'median', 'min_pixel', 'max_pixel', 'skewness',
@@ -121,11 +122,13 @@ def main():
             'rms_contrast', 'sharpness'
         ])
         processed_images = set()
+        logging.info("No previous statistics found. Starting from scratch.")
 
     # Load list of processed images if exists
     if os.path.exists(PROCESSED_IMAGES_PATH):
         with open(PROCESSED_IMAGES_PATH, 'r') as f:
             processed_images.update(f.read().splitlines())
+
 
     # Initialize accumulators for global mean and std dev
     sum_pixels = np.zeros(3)  # Assuming RGB images
@@ -135,6 +138,7 @@ def main():
     # Use a Manager to share the processed images set between processes
     with Manager() as manager:
         processed_images_dict = manager.dict({img: None for img in processed_images})
+        logging.info("Starting processing...")
 
         # Use ProcessPoolExecutor for parallel processing
         with ProcessPoolExecutor(max_workers=NUM_WORKERS) as executor:
@@ -191,6 +195,9 @@ def main():
         stats_df.to_csv(STATS_CSV_PATH)
         with open(PROCESSED_IMAGES_PATH, 'w') as f:
             f.write("\n".join(list(processed_images_dict.keys())))
+        logging.info("Final checkpoint saved.")
+
+    logging.info("Calculating global statistics...")
 
     # Calculate global mean and standard deviation
     mean = sum_pixels / total_pixels
