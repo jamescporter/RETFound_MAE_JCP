@@ -1,5 +1,5 @@
 import os
-import time
+import sys
 import numpy as np
 import pandas as pd
 from PIL import Image
@@ -15,12 +15,24 @@ import gc
 # Configurable Parameters
 # ================================
 
-LOG_FILE_PATH = 'D:\\2024_PHD-DATA_CFP_PROCESSING\\2024-08-25_processing.log'
-STATS_CSV_PATH = 'D:\\2024_PHD-DATA_CFP_PROCESSING\\2024-08-25_image_statistics_checkpoint.csv'
-PROCESSED_IMAGES_PATH = 'D:\\2024_PHD-DATA_CFP_PROCESSING\\2024-08-25_processed_images.txt'
-ROOT_FOLDER = r"D:\2024_PHD-DATA_CFP-imgs_cropped"
+# Expect the folder path as a command-line argument
+if len(sys.argv) < 2:
+    print("Please provide the folder path as a command-line argument.")
+    sys.exit(1)
+
+ROOT_FOLDER = sys.argv[1]
+
+# Define the output directory
+OUTPUT_FOLDER = r"D:\2024_PHD-DATA_CFP_PROCESSING_v2"
+if not os.path.exists(OUTPUT_FOLDER):
+    os.makedirs(OUTPUT_FOLDER)
+
+# Generate unique names for the log file and the stats CSV file based on the input folder name
+folder_name = os.path.basename(os.path.normpath(ROOT_FOLDER))
+LOG_FILE_PATH = os.path.join(OUTPUT_FOLDER, f'{folder_name}_processing.log')
+STATS_CSV_PATH = os.path.join(OUTPUT_FOLDER, f'{folder_name}_image_statistics.csv')
+
 RESIZE_DIMENSIONS = (256, 256)
-CHECKPOINT_FREQUENCY = 3000
 
 # ================================
 # Setup Logging
@@ -41,7 +53,6 @@ console_handler.setFormatter(formatter)
 
 logger.addHandler(file_handler)
 logger.addHandler(console_handler)
-
 
 # ================================
 # Main Processing Function
@@ -95,7 +106,7 @@ def process_image(subdir, file):
             'homogeneity': img_homogeneity,
             'rms_contrast': rms_contrast,
             'sharpness': sharpness
-        }, img.sum(axis=(0, 1)), (img ** 2).sum(axis=(0, 1)), img.shape[0] * img.shape[1]
+        }
 
     except Exception as e:
         logging.error(f"Error processing {img_path}: {e}")
@@ -104,7 +115,6 @@ def process_image(subdir, file):
         gc.collect()
     return None
 
-
 # ================================
 # Main Program Execution
 # ================================
@@ -112,32 +122,11 @@ def process_image(subdir, file):
 def main():
     logging.info("Processing started.")
 
-    if os.path.exists(STATS_CSV_PATH):
-        stats_df = pd.read_csv(STATS_CSV_PATH, index_col='filename')
-        processed_images = set(stats_df.index)
-        logging.info(f"Loaded {len(processed_images)} previously processed images.")
-    else:
-        stats_df = pd.DataFrame(columns=[
-            'median', 'min_pixel', 'max_pixel', 'skewness',
-            'kurtosis', 'entropy', 'contrast', 'energy', 'homogeneity',
-            'rms_contrast', 'sharpness'
-        ])
-        processed_images = set()
-        logging.info("...no previous statistics found. Starting from scratch.")
-
-    if os.path.exists(PROCESSED_IMAGES_PATH):
-        with open(PROCESSED_IMAGES_PATH, 'r') as f:
-            processed_images.update(f.read().splitlines())
-
-    sum_pixels = np.zeros(3)
-    sum_squared_pixels = np.zeros(3)
-    total_pixels = 0
-
-    total_images = sum(
-        len(files) for _, _, files in os.walk(ROOT_FOLDER) if any(f.endswith('.png') for f in files)
-    )
-
-    first_1000_time_start = time.time()
+    stats_df = pd.DataFrame(columns=[
+        'median', 'min_pixel', 'max_pixel', 'skewness',
+        'kurtosis', 'entropy', 'contrast', 'energy', 'homogeneity',
+        'rms_contrast', 'sharpness'
+    ])
 
     logging.info("...walking through images...")
     futures = []
@@ -145,9 +134,7 @@ def main():
     for subdir, _, files in os.walk(ROOT_FOLDER):
         for file in files:
             if file.endswith('.png'):
-                filename = os.path.splitext(file)[0]
-                if filename not in processed_images:
-                    futures.append((subdir, file))
+                futures.append((subdir, file))
 
     logging.info(f"Processing {len(futures)} images...")
 
@@ -158,46 +145,12 @@ def main():
             logging.error(f"Processing failed for {file}.")
             continue
 
-        filename, stats, img_sum, img_squared_sum, img_pixel_count = result
-        sum_pixels += img_sum
-        sum_squared_pixels += img_squared_sum
-        total_pixels += img_pixel_count
+        filename, stats = result
         stats_df.loc[filename] = stats
-        processed_images.add(filename)
 
-        if len(processed_images) == CHECKPOINT_FREQUENCY:
-            first_1000_time_end = time.time()
-            time_per_image = (first_1000_time_end - first_1000_time_start) / CHECKPOINT_FREQUENCY
-            remaining_images = total_images - len(processed_images)
-            estimated_total_time = remaining_images * time_per_image
-            logging.info(
-                f"First {CHECKPOINT_FREQUENCY} imgs took: {first_1000_time_end - first_1000_time_start:.2f} seconds.")
-            logging.info(f"Estimated remaining time: {estimated_total_time / 3600:.2f} hours.")
-            stats_df.to_csv(STATS_CSV_PATH, index=True)
-            with open(PROCESSED_IMAGES_PATH, 'w') as f:
-                f.write("\n".join(processed_images))
-            gc.collect()
-            logging.info(f"Checkpoint saved after processing {len(processed_images)} images.")
-        elif len(processed_images) % CHECKPOINT_FREQUENCY == 0:
-            stats_df.to_csv(STATS_CSV_PATH, index=True)
-            with open(PROCESSED_IMAGES_PATH, 'w') as f:
-                f.write("\n".join(processed_images))
-            gc.collect()
-            logging.info(f"Checkpoint saved after processing {len(processed_images)} images.")
     logging.info("Storing stats")
     stats_df.to_csv(STATS_CSV_PATH, index=True)
-    with open(PROCESSED_IMAGES_PATH, 'w') as f:
-        f.write("\n".join(processed_images))
-    logging.info("Final checkpoint saved.")
-
-    logging.info("Calculating global statistics...")
-    mean = sum_pixels / total_pixels
-    variance = (sum_squared_pixels / total_pixels) - (mean ** 2)
-    std_dev = np.sqrt(variance)
-    print(f"Global Mean: {mean}")
-    print(f"Global Standard Deviation: {std_dev}")
     logging.info("Processing completed.")
-
 
 if __name__ == "__main__":
     main()
