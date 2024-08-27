@@ -103,7 +103,7 @@ python -m torch.distributed.launch --nproc_per_node=1 --master_port=48798 main_f
 4. For evaluation only (download data and model checkpoints [here](BENCHMARK.md); change the path below)
 
 
-```
+```python
 python -m torch.distributed.launch --nproc_per_node=1 --master_port=48798 main_finetune.py \
     --eval --batch_size 16 \
     --world_size 1 \
@@ -117,7 +117,19 @@ python -m torch.distributed.launch --nproc_per_node=1 --master_port=48798 main_f
     --resume ./finetune_IDRiD/checkpoint-best.pth \
     --input_size 224
 
+# This command evaluates a pre-trained Vision Transformer (ViT) model on a dataset using a single GPU.
+# - `--eval` runs the evaluation mode without training.
+# - `--batch_size 16` sets the batch size for evaluation.
+# - `--world_size 1` specifies single-process (single-GPU) execution.
+# - `--model vit_large_patch16` selects the ViT model variant.
+# - `--epochs 50`, `--blr 5e-3`, `--layer_decay 0.65`, `--weight_decay 0.05`, and `--drop_path 0.2` are training parameters included by default but not actively used in evaluation.
+# - `--nb_classes 5` configures the model for 5-class classification.
+# - `--data_path ./IDRiD_data/` specifies the dataset directory.
+# - `--task ./internal_IDRiD/` sets the task-specific directory for logging or configurations.
+# - `--resume ./finetune_IDRiD/checkpoint-best.pth` loads a pre-trained model checkpoint for evaluation.
+# - `--input_size 224` resizes input images to 224x224 pixels, matching the model's expected input size.
 ```
+
 
 
 ### Load the model and weights (if you want to call the model in your code)

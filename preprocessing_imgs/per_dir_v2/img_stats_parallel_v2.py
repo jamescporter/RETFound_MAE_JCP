@@ -5,6 +5,7 @@ import pandas as pd
 from PIL import Image
 import logging
 import gc
+from tqdm import tqdm
 from numba import njit, prange
 
 # Configurable Parameters
@@ -84,33 +85,48 @@ def main():
     global_max_pixel = np.zeros(3, dtype=np.float64)
     global_total_pixels = 0
 
+    # Gather all files first to use with tqdm
+    files_to_process = []
     for subdir, _, files in os.walk(ROOT_FOLDER):
         for file in files:
             if file.endswith('.png'):
-                result = process_image(subdir, file)
+                files_to_process.append((subdir, file))
 
-                if result is None:
-                    logging.error(f"Processing failed for {file}.")
-                    continue
+    # Progress bar for processing images
+    for subdir, file in tqdm(files_to_process, desc="Processing Images", unit="image"):
+        result = process_image(subdir, file)
 
-                sum_pixels, sum_squares, min_pixel, max_pixel, total_pixels = result
+        if result is None:
+            logging.error(f"Processing failed for {file}.")
+            continue
 
-                global_sum_pixels += sum_pixels
-                global_sum_squares += sum_squares
-                global_min_pixel = np.minimum(global_min_pixel, min_pixel)
-                global_max_pixel = np.maximum(global_max_pixel, max_pixel)
-                global_total_pixels += total_pixels
+        sum_pixels, sum_squares, min_pixel, max_pixel, total_pixels = result
 
-    global_stats = pd.DataFrame({
-        'global_sum_pixels': global_sum_pixels,
-        'global_sum_squares': global_sum_squares,
-        'global_min_pixel': global_min_pixel,
-        'global_max_pixel': global_max_pixel,
-        'global_total_pixels': [global_total_pixels]
-    })
+        global_sum_pixels += sum_pixels
+        global_sum_squares += sum_squares
+        global_min_pixel = np.minimum(global_min_pixel, min_pixel)
+        global_max_pixel = np.maximum(global_max_pixel, max_pixel)
+        global_total_pixels += total_pixels
+
+    # Combine results into a dictionary with arrays split across keys
+    global_stats = {
+        'global_sum_pixels_R': global_sum_pixels[0],
+        'global_sum_pixels_G': global_sum_pixels[1],
+        'global_sum_pixels_B': global_sum_pixels[2],
+        'global_sum_squares_R': global_sum_squares[0],
+        'global_sum_squares_G': global_sum_squares[1],
+        'global_sum_squares_B': global_sum_squares[2],
+        'global_min_pixel_R': global_min_pixel[0],
+        'global_min_pixel_G': global_min_pixel[1],
+        'global_min_pixel_B': global_min_pixel[2],
+        'global_max_pixel_R': global_max_pixel[0],
+        'global_max_pixel_G': global_max_pixel[1],
+        'global_max_pixel_B': global_max_pixel[2],
+        'global_total_pixels': global_total_pixels
+    }
 
     logging.info("Storing global stats.")
-    global_stats.to_csv(STATS_CSV_PATH, index=False)
+    pd.DataFrame([global_stats]).to_csv(STATS_CSV_PATH, index=False)
     logging.info("Processing completed.")
 
 
